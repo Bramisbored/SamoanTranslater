@@ -38,18 +38,20 @@ last_translator = None  # "google" or "nllb", whichever answered last
 
 # ---------------------------------------------------------------- translation
 
-def translate(text: str, source: str, target: str) -> str:
+def translate(text: str, source: str, target: str, engine: str | None = None) -> str:
     """Translate with Google Translate, falling back to Meta's NLLB on this Mac.
 
     Google's free endpoint (via deep-translator) sometimes blocks an address with
     its "unusual traffic" page; NLLB runs locally and can't be blocked.
-    Language codes: "en" English, "sm" Samoan.
+    Language codes: "en" English, "sm" Samoan. `engine` overrides TRANSLATOR for this
+    call ("nllb" when the phone's own Google request was too slow).
     """
     global _google_blocked_until, last_translator
+    mode = engine or TRANSLATOR
     if FAKE:
         return f"[{source}->{target}] {text}"
 
-    if TRANSLATOR != "nllb" and (TRANSLATOR == "google" or time.time() >= _google_blocked_until):
+    if mode != "nllb" and (mode == "google" or time.time() >= _google_blocked_until):
         try:
             from deep_translator import GoogleTranslator
 
@@ -57,7 +59,7 @@ def translate(text: str, source: str, target: str) -> str:
             last_translator = "google"
             return result
         except Exception as e:
-            if TRANSLATOR == "google":
+            if mode == "google":
                 raise
             log.warning("Google Translate failed (%s: %s); using NLLB for %d min",
                         type(e).__name__, e, GOOGLE_COOLDOWN // 60)
@@ -185,7 +187,7 @@ def preload():
     if not FAKE:
         _load_tts()
         _load_asr()
-        if TRANSLATOR == "nllb":  # in auto mode NLLB loads only if Google fails
+        if TRANSLATOR != "google":  # the phone falls back to NLLB, so have it ready
             _load_nllb()
 
 

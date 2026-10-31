@@ -9,7 +9,8 @@ web app installed to the home screen, reaching the Mac through a Cloudflare Tunn
 Phone (Chrome, installed app)
    │  HTTPS
 Cloudflare (Access login) ── tunnel ──▶ Mac mini :8000  FastAPI server
-                                          ├─ Google Translate      (en ⇄ sm; falls back to facebook/nllb-200 on the Mac)
+                                          ├─ Google Translate      (en ⇄ sm; called from the phone by default,
+                                          │                         falls back to facebook/nllb-200 on the Mac)
                                           ├─ facebook/mms-tts-smo  (Samoan voice)
                                           └─ facebook/mms-1b-all   (Samoan speech → text)
 ```
@@ -85,13 +86,18 @@ then ⋮ menu → **Add to Home screen** / **Install app**. Allow the microphone
   have a Samoan speaker check anything important.
 - **Speed:** After start-up, a short sentence takes about 1–3 s each way on an M1. Models take ~30 s to load after
   a restart.
-- **Memory:** both models together use ~5–6 GB, plus ~2.5 GB once the NLLB translator is in use. Fine on 16 GB;
+- **Memory:** both models together use ~5–6 GB, plus ~2.5 GB for the NLLB translator (loaded at start-up
+  unless `TRANSLATOR=google`). Fine on 16 GB;
   tight on an 8 GB Mac mini.
 - **Licences:** Meta's MMS models are CC-BY-NC 4.0 — personal / non-commercial use only. NLLB is also CC-BY-NC 4.0.
-- **Translation:** Google Translate's free endpoint first. If Google blocks this address (its "unusual traffic"
-  page, reported as `TooManyRequests`), the app switches to Meta's NLLB model on the Mac for 15 minutes, then tries
-  Google again. NLLB can't be blocked but is usually a little less accurate. Set `TRANSLATOR=nllb` to never use
-  Google, or `TRANSLATOR=google` to turn the fallback off.
+- **Translation:** by default the phone asks Google Translate itself (Settings → *Translate with* → Google (phone)),
+  so the Mac only does the voice and speech recognition. If Google hasn't answered within 0.5 s
+  (`GOOGLE_HEAD_START_MS` in `web/index.html`), or fails, the phone also asks the Mac to translate with Meta's
+  NLLB model and uses whichever answer comes back first. If you pick
+  *The Mac*, the Mac tries Google's free endpoint first, and if Google blocks the Mac (its "unusual traffic" page,
+  reported as `TooManyRequests`) uses NLLB for 15 minutes before trying Google again. NLLB can't be blocked
+  but is usually a little less accurate. On the Mac, `TRANSLATOR=nllb` never uses Google and `TRANSLATOR=google`
+  turns the fallback off. The result card says which one translated.
 - **Testing without models:** `FAKE_MODELS=1 bash scripts/run.sh` runs the app with placeholder results.
 - **Settings** (environment variables): `PORT`, `PRELOAD_MODELS`, `TTS_MODEL_ID`, `ASR_MODEL_ID`, `ASR_LANG`,
   `TRANSLATOR`, `NLLB_MODEL_ID`.

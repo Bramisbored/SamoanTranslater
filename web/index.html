@@ -74,6 +74,10 @@
   #history .to { margin: 0; font-weight: 500; }
   #history .play { flex: none; width: 38px; height: 38px; border-radius: 50%; border: 1.5px solid var(--line);
     background: #fff; color: var(--deep); cursor: pointer; display: grid; place-items: center; }
+  .via { color: var(--muted); font-size: .78rem; margin: 6px 0 0; }
+  .setting { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .setting select { font: inherit; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line);
+    background: #fff; color: var(--ink); max-width: 60%; }
   .empty { color: var(--muted); font-size: .92rem; padding: 4px; }
   .spinner { width: 16px; height: 16px; border: 2px solid currentColor; border-right-color: transparent;
     border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; }
@@ -108,6 +112,7 @@
       <label class="small">In Samoan</label>
       <p class="big" id="en-samoan"></p>
       <p class="sub" id="en-english"></p>
+      <p class="via" id="en-via"></p>
       <div class="row">
         <button class="primary" id="en-play" type="button">▶ Play again</button>
       </div>
@@ -129,6 +134,7 @@
       <label class="small">In English</label>
       <p class="big" id="sm-english"></p>
       <p class="sub" id="sm-samoan"></p>
+      <p class="via" id="sm-via"></p>
       <div class="row">
         <button class="primary" id="sm-play" type="button">▶ Say it in English</button>
       </div>
@@ -137,6 +143,15 @@
 
   <h2>Recent <button id="clear" type="button">Clear</button></h2>
   <ul id="history"></ul>
+
+  <h2>Settings</h2>
+  <div class="card setting">
+    <label for="translator">Translate with</label>
+    <select id="translator">
+      <option value="phone">Google (phone)</option>
+      <option value="mac">The Mac</option>
+    </select>
+  </div>
 </main>
 
 <script>
@@ -166,6 +181,53 @@ async function api(path, opts) {
   return data;
 }
 
+// ---------- translation: Google straight from this phone, or the Mac
+// If Google hasn't answered the phone within GOOGLE_HEAD_START_MS, NLLB on the Mac is asked too and
+// whichever answers first wins.
+const TKEY = "samoan-translator";
+const GOOGLE_HEAD_START_MS = 500;
+const GOOGLE_TIMEOUT_MS = 8000;
+function translatorSetting() { try { return localStorage.getItem(TKEY) || "phone"; } catch { return "phone"; } }
+$("translator").value = translatorSetting();
+$("translator").onchange = () => { try { localStorage.setItem(TKEY, $("translator").value); } catch {} };
+
+async function googleTranslate(text, source, target) {
+  const url = "https://translate.googleapis.com/translate_a/single?client=gtx&dt=t"
+    + `&sl=${source}&tl=${target}&q=${encodeURIComponent(text)}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(GOOGLE_TIMEOUT_MS) });
+  if (!res.ok) throw new Error(`Google ${res.status}`);
+  const data = await res.json();
+  const out = (data[0] || []).map((part) => part[0] || "").join("").trim();
+  if (!out) throw new Error("Google returned nothing");
+  return out;
+}
+
+async function macTranslate(text, source, target, engine) {
+  const r = await api("/api/translate", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, source, target, engine }) });
+  return { text: r.text, via: r.translator };
+}
+
+// Resolves to { text, via }.
+async function translateText(text, source, target) {
+  if (translatorSetting() !== "phone") return macTranslate(text, source, target, "auto");
+  const google = googleTranslate(text, source, target).then((t) => ({ text: t, via: "phone" }));
+  google.catch((e) => console.warn("Phone Google Translate failed:", e));
+  const headStart = new Promise((resolve) => setTimeout(resolve, GOOGLE_HEAD_START_MS, null));
+  const first = await Promise.race([google.catch(() => null), headStart]);
+  if (first) return first;
+  try {
+    return await Promise.any([google, macTranslate(text, source, target, "nllb")]);
+  } catch (e) {
+    throw e.errors.at(-1);  // both failed: report the Mac's error
+  }
+}
+
+function viaLabel(who) {
+  return { phone: "Translated by Google on this phone", google: "Translated by Google on the Mac",
+           nllb: "Translated by NLLB server side" }[who] || "";
+}
+
 function playAudio(src) {
   if (currentAudio) currentAudio.pause();
   currentAudio = new Audio(src);
@@ -189,11 +251,16 @@ async function translateEnglish() {
   $("en-go").disabled = true;
   setStatus($("en-status"), "Translating… (the first one can take a minute while the voice loads)", false, true);
   try {
-    const r = await api("/api/speak", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
-    });
+    const json = { method: "POST", headers: { "Content-Type": "application/json" } };
+    let r;
+    if (translatorSetting() === "phone") {
+      const t = await translateText(text, "en", "sm");
+      r = { ...(await api("/api/say", { ...json, body: JSON.stringify({ text: t.text }) })), english: text, translator: t.via };
+    } else {
+      r = await api("/api/speak", { ...json, body: JSON.stringify({ text }) });
+    }
     lastSamoanAudio = r.audio;
+    $("en-via").textContent = viaLabel(r.translator);
     $("en-samoan").textContent = r.samoan;
     $("en-english").textContent = r.english;
     $("en-result").hidden = false;
@@ -223,17 +290,18 @@ if (!Recognition) {
     recog = new Recognition();
     recog.lang = "en-AU";
     recog.interimResults = true;
-    const before = $("en-text").value.trim();
+    $("en-text").value = "";
+    $("en-result").hidden = true;
     recog.onresult = (ev) => {
       const said = Array.from(ev.results).map((r) => r[0].transcript).join(" ");
-      $("en-text").value = (before ? before + " " : "") + said;
+      $("en-text").value = said;
     };
     recog.onerror = (ev) => setStatus($("en-status"), "Mic: " + ev.error, true);
     recog.onend = () => {
       $("en-mic").classList.remove("listening");
       $("en-mic").querySelector("span").textContent = "Speak";
       recog = null;
-      if ($("en-text").value.trim() && $("en-text").value.trim() !== before) translateEnglish();
+      if ($("en-text").value.trim()) translateEnglish();
     };
     $("en-mic").classList.add("listening");
     $("en-mic").querySelector("span").textContent = "Listening…";
@@ -274,6 +342,7 @@ async function startRecording() {
   };
   recorder.start();
   recStart = Date.now();
+  $("sm-result").hidden = true;
   $("sm-mic").classList.add("recording");
   setStatus($("sm-status"), "");
   timer = setInterval(() => {
@@ -297,11 +366,19 @@ async function sendRecording(blob) {
     const ext = blob.type.includes("mp4") ? "m4a" : blob.type.includes("ogg") ? "ogg" : "webm";
     const fd = new FormData();
     fd.append("audio", blob, "speech." + ext);
-    const r = await api("/api/listen", { method: "POST", body: fd });
+    const onPhone = translatorSetting() === "phone";
+    const r = await api("/api/listen" + (onPhone ? "?translate=false" : ""), { method: "POST", body: fd });
     if (!r.samoan) {
       setStatus($("sm-status"), "Didn't catch any words — try again a little closer to the phone.", true);
       return;
     }
+    if (onPhone) {
+      setStatus($("sm-status"), "Translating…", false, true);
+      const t = await translateText(r.samoan, "sm", "en");
+      r.english = t.text;
+      r.translator = t.via;
+    }
+    $("sm-via").textContent = viaLabel(r.translator);
     lastEnglish = r.english;
     $("sm-english").textContent = r.english;
     $("sm-samoan").textContent = "Heard: " + r.samoan;

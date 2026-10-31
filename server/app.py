@@ -3,6 +3,9 @@
     POST /api/speak   {"text": "..."}          English -> Samoan text + Samoan audio
     POST /api/say     {"text": "..."}          Samoan text -> Samoan audio (replay/edit)
     POST /api/listen  multipart file "audio"   Samoan speech -> Samoan text + English
+                      (?translate=false: Samoan text only, the phone translates it)
+    POST /api/translate {"text", "source", "target"}  translate on the Mac ("en" / "sm")
+                      ("engine": "nllb" skips Google)
     GET  /api/health
     GET  /                                     the phone web app
 
@@ -16,6 +19,8 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+from typing import Literal
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -47,6 +52,12 @@ class TextIn(BaseModel):
     text: str = Field(..., min_length=1, max_length=MAX_TEXT)
 
 
+class TranslateIn(TextIn):
+    source: Literal["en", "sm"]
+    target: Literal["en", "sm"]
+    engine: Literal["auto", "nllb"] = "auto"  # "nllb": skip Google (the phone is already asking it)
+
+
 def _b64_wav(wav: bytes) -> str:
     return "data:audio/wav;base64," + base64.b64encode(wav).decode()
 
@@ -67,7 +78,8 @@ def speak(body: TextIn):
     if not samoan:
         raise HTTPException(502, "Translation came back empty.")
     wav = models.speak_samoan(samoan)
-    return {"english": english, "samoan": samoan, "audio": _b64_wav(wav)}
+    return {"english": english, "samoan": samoan, "audio": _b64_wav(wav),
+            "translator": models.last_translator}
 
 
 @app.post("/api/say")
@@ -76,8 +88,18 @@ def say(body: TextIn):
     return {"samoan": samoan, "audio": _b64_wav(models.speak_samoan(samoan))}
 
 
+@app.post("/api/translate")
+def translate(body: TranslateIn):
+    try:
+        text = models.translate(body.text.strip(), body.source, body.target, body.engine)
+    except Exception as e:
+        log.exception("translate failed")
+        raise HTTPException(502, f"Translation failed: {e}")
+    return {"text": text, "translator": models.last_translator}
+
+
 @app.post("/api/listen")
-def listen(audio: UploadFile = File(...)):
+def listen(audio: UploadFile = File(...), translate: bool = True):
     data = audio.file.read(MAX_AUDIO_BYTES + 1)
     if not data:
         raise HTTPException(400, "The recording was empty.")
@@ -94,14 +116,15 @@ def listen(audio: UploadFile = File(...)):
         raise HTTPException(413, f"Keep recordings under {MAX_AUDIO_SECONDS} seconds.")
 
     samoan = models.transcribe_samoan(samples)
-    if not samoan:
-        return {"samoan": "", "english": "", "seconds": round(seconds, 1)}
+    if not samoan or not translate:
+        return {"samoan": samoan, "english": "", "seconds": round(seconds, 1)}
     try:
         english = models.translate(samoan, "sm", "en")
     except Exception as e:
         log.exception("translate failed")
         raise HTTPException(502, f"Translation failed: {e}")
-    return {"samoan": samoan, "english": english, "seconds": round(seconds, 1)}
+    return {"samoan": samoan, "english": english, "seconds": round(seconds, 1),
+            "translator": models.last_translator}
 
 
 @app.get("/")
