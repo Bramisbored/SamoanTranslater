@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0c3b44">
+<title>Samoan Translater</title>
+<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
+<link rel="icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<style>
+  :root {
+    --bg: #f5efe4;
+    --card: #fffdf8;
+    --ink: #1d2422;
+    --muted: #6a6f6a;
+    --deep: #0c3b44;
+    --sea: #127a7a;
+    --coral: #d9573a;
+    --line: #e4dccd;
+    --radius: 18px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { min-height: 100dvh; display: flex; flex-direction: column; }
+  header { background: var(--deep); color: #f5efe4; padding: calc(14px + env(safe-area-inset-top)) 20px 0; }
+  header h1 { margin: 0 0 12px; font: 600 1.25rem/1.2 Georgia, "Times New Roman", serif; letter-spacing: .01em; }
+  header h1 span { color: #f0b58f; font-style: italic; }
+  .tabs { display: flex; gap: 4px; }
+  .tab { flex: 1; border: 0; background: transparent; color: #b9d0cf; padding: 12px 8px 14px;
+    font: 600 .95rem system-ui, sans-serif; border-bottom: 3px solid transparent; cursor: pointer; }
+  .tab[aria-selected="true"] { color: #fff; border-bottom-color: #f0b58f; }
+  main { flex: 1; width: 100%; max-width: 560px; margin: 0 auto; padding: 18px 16px 40px; }
+  .panel[hidden] { display: none; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+  label.small { display: block; font-size: .78rem; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--muted); margin-bottom: 8px; font-weight: 600; }
+  textarea { width: 100%; min-height: 96px; resize: vertical; border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px; font: inherit; font-size: 1.05rem; background: #fff; color: var(--ink); }
+  textarea:focus { outline: 2px solid var(--sea); outline-offset: 1px; }
+  .row { display: flex; gap: 10px; margin-top: 12px; }
+  button.primary, button.ghost { border-radius: 999px; padding: 12px 18px; font: 600 1rem system-ui, sans-serif;
+    cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+  button.primary { flex: 1; background: var(--sea); color: #fff; border: 0; }
+  button.primary:disabled { opacity: .55; }
+  button.ghost { background: transparent; color: var(--deep); border: 1.5px solid var(--line); }
+  button.ghost.listening { border-color: var(--coral); color: var(--coral); }
+  .result { margin-top: 16px; }
+  .result[hidden] { display: none; }
+  .big { font: 500 1.45rem/1.35 Georgia, "Times New Roman", serif; margin: 0 0 6px; }
+  .sub { color: var(--muted); margin: 0; }
+  .result .row { margin-top: 14px; }
+  .mic-wrap { display: flex; flex-direction: column; align-items: center; padding: 28px 0 8px; }
+  .mic { width: 148px; height: 148px; border-radius: 50%; border: 0; cursor: pointer;
+    background: var(--coral); color: #fff; box-shadow: 0 10px 30px rgba(217, 87, 58, .35);
+    display: grid; place-items: center; transition: transform .15s; }
+  .mic:active { transform: scale(.96); }
+  .mic.recording { background: var(--deep); box-shadow: 0 0 0 0 rgba(12, 59, 68, .5); animation: pulse 1.4s infinite; }
+  .mic:disabled { opacity: .55; }
+  .mic svg { width: 56px; height: 56px; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(12,59,68,.45);} 100% { box-shadow: 0 0 0 26px rgba(12,59,68,0);} }
+  .hint { color: var(--muted); text-align: center; margin: 16px 0 0; min-height: 1.4em; }
+  .status { margin-top: 12px; font-size: .92rem; color: var(--muted); min-height: 1.3em; }
+  .status.error { color: #b3261e; }
+  h2 { font: 600 .78rem system-ui, sans-serif; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--muted); margin: 28px 4px 10px; display: flex; justify-content: space-between; align-items: center; }
+  h2 button { background: none; border: 0; color: var(--muted); font: inherit; cursor: pointer; text-transform: none; letter-spacing: 0; }
+  #history { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  #history li { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px;
+    display: flex; gap: 10px; align-items: flex-start; }
+  #history .txt { flex: 1; min-width: 0; }
+  #history .from { color: var(--muted); font-size: .88rem; margin: 0 0 2px; }
+  #history .to { margin: 0; font-weight: 500; }
+  #history .play { flex: none; width: 38px; height: 38px; border-radius: 50%; border: 1.5px solid var(--line);
+    background: #fff; color: var(--deep); cursor: pointer; display: grid; place-items: center; }
+  .empty { color: var(--muted); font-size: .92rem; padding: 4px; }
+  .spinner { width: 16px; height: 16px; border: 2px solid currentColor; border-right-color: transparent;
+    border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Samoan Translater <span>· Talofa</span></h1>
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" id="tab-en" aria-selected="true" aria-controls="panel-en">English → Samoan</button>
+    <button class="tab" role="tab" id="tab-sm" aria-selected="false" aria-controls="panel-sm">Samoan → English</button>
+  </div>
+</header>
+
+<main>
+  <!-- English -> Samoan -->
+  <section class="panel" id="panel-en" role="tabpanel" aria-labelledby="tab-en">
+    <div class="card">
+      <label class="small" for="en-text">Say it in English</label>
+      <textarea id="en-text" placeholder="e.g. Thank you for the lovely dinner" maxlength="500"></textarea>
+      <div class="row">
+        <button class="ghost" id="en-mic" type="button" title="Speak English">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+          <span>Speak</span>
+        </button>
+        <button class="primary" id="en-go" type="button">Translate &amp; speak</button>
+      </div>
+      <div class="status" id="en-status" role="status"></div>
+    </div>
+    <div class="card result" id="en-result" hidden>
+      <label class="small">In Samoan</label>
+      <p class="big" id="en-samoan"></p>
+      <p class="sub" id="en-english"></p>
+      <div class="row">
+        <button class="primary" id="en-play" type="button">▶ Play again</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Samoan -> English -->
+  <section class="panel" id="panel-sm" role="tabpanel" aria-labelledby="tab-sm" hidden>
+    <div class="card">
+      <div class="mic-wrap">
+        <button class="mic" id="sm-mic" type="button" aria-label="Record Samoan speech">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+        </button>
+        <p class="hint" id="sm-hint">Tap, let them speak Samoan, tap again</p>
+      </div>
+      <div class="status" id="sm-status" role="status"></div>
+    </div>
+    <div class="card result" id="sm-result" hidden>
+      <label class="small">In English</label>
+      <p class="big" id="sm-english"></p>
+      <p class="sub" id="sm-samoan"></p>
+      <div class="row">
+        <button class="primary" id="sm-play" type="button">▶ Say it in English</button>
+      </div>
+    </div>
+  </section>
+
+  <h2>Recent <button id="clear" type="button">Clear</button></h2>
+  <ul id="history"></ul>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let currentAudio = null;
+
+// ---------- tabs
+function showTab(which) {
+  for (const t of ["en", "sm"]) {
+    $("tab-" + t).setAttribute("aria-selected", t === which);
+    $("panel-" + t).hidden = t !== which;
+  }
+}
+$("tab-en").onclick = () => showTab("en");
+$("tab-sm").onclick = () => showTab("sm");
+
+function setStatus(el, msg, isError = false, busy = false) {
+  el.className = "status" + (isError ? " error" : "");
+  el.innerHTML = busy ? `<span class="spinner"></span> ${msg}` : msg;
+}
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  let data = null;
+  try { data = await res.json(); } catch {}
+  if (!res.ok) throw new Error((data && data.detail) || `Server error (${res.status})`);
+  return data;
+}
+
+function playAudio(src) {
+  if (currentAudio) currentAudio.pause();
+  currentAudio = new Audio(src);
+  return currentAudio.play();
+}
+
+function speakEnglish(text) {
+  if (!("speechSynthesis" in window)) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "en-AU";
+  speechSynthesis.speak(u);
+}
+
+// ---------- English -> Samoan
+let lastSamoanAudio = null;
+
+async function translateEnglish() {
+  const text = $("en-text").value.trim();
+  if (!text) { $("en-text").focus(); return; }
+  $("en-go").disabled = true;
+  setStatus($("en-status"), "Translating… (the first one can take a minute while the voice loads)", false, true);
+  try {
+    const r = await api("/api/speak", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    lastSamoanAudio = r.audio;
+    $("en-samoan").textContent = r.samoan;
+    $("en-english").textContent = r.english;
+    $("en-result").hidden = false;
+    setStatus($("en-status"), "");
+    addHistory({ dir: "en", from: r.english, to: r.samoan });
+    playAudio(r.audio).catch(() => setStatus($("en-status"), "Tap “Play again” to hear it."));
+  } catch (e) {
+    setStatus($("en-status"), e.message, true);
+  } finally {
+    $("en-go").disabled = false;
+  }
+}
+$("en-go").onclick = translateEnglish;
+$("en-text").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); translateEnglish(); }
+});
+$("en-play").onclick = () => lastSamoanAudio && playAudio(lastSamoanAudio);
+
+// English dictation (Chrome's built-in speech recognition)
+const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recog = null;
+if (!Recognition) {
+  $("en-mic").hidden = true;
+} else {
+  $("en-mic").onclick = () => {
+    if (recog) { recog.stop(); return; }
+    recog = new Recognition();
+    recog.lang = "en-AU";
+    recog.interimResults = true;
+    const before = $("en-text").value.trim();
+    recog.onresult = (ev) => {
+      const said = Array.from(ev.results).map((r) => r[0].transcript).join(" ");
+      $("en-text").value = (before ? before + " " : "") + said;
+    };
+    recog.onerror = (ev) => setStatus($("en-status"), "Mic: " + ev.error, true);
+    recog.onend = () => {
+      $("en-mic").classList.remove("listening");
+      $("en-mic").querySelector("span").textContent = "Speak";
+      recog = null;
+      if ($("en-text").value.trim() && $("en-text").value.trim() !== before) translateEnglish();
+    };
+    $("en-mic").classList.add("listening");
+    $("en-mic").querySelector("span").textContent = "Listening…";
+    setStatus($("en-status"), "");
+    recog.start();
+  };
+}
+
+// ---------- Samoan -> English
+let recorder = null, chunks = [], recStart = 0, timer = null, lastEnglish = "";
+
+function pickMime() {
+  for (const m of ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"]) {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
+  }
+  return "";
+}
+
+async function startRecording() {
+  if (!navigator.mediaDevices || !window.MediaRecorder) {
+    setStatus($("sm-status"), "This browser can't record audio. Open the app in Chrome.", true);
+    return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+  } catch {
+    setStatus($("sm-status"), "Microphone access was blocked. Allow it in Chrome's site settings.", true);
+    return;
+  }
+  const mime = pickMime();
+  recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+  chunks = [];
+  recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+  recorder.onstop = () => {
+    stream.getTracks().forEach((t) => t.stop());
+    sendRecording(new Blob(chunks, { type: recorder.mimeType || "audio/webm" }));
+  };
+  recorder.start();
+  recStart = Date.now();
+  $("sm-mic").classList.add("recording");
+  setStatus($("sm-status"), "");
+  timer = setInterval(() => {
+    const s = Math.floor((Date.now() - recStart) / 1000);
+    $("sm-hint").textContent = `Listening… ${s}s — tap to stop`;
+    if (s >= 55) stopRecording();
+  }, 250);
+}
+
+function stopRecording() {
+  clearInterval(timer);
+  $("sm-mic").classList.remove("recording");
+  $("sm-hint").textContent = "Tap, let them speak Samoan, tap again";
+  if (recorder && recorder.state !== "inactive") recorder.stop();
+}
+
+async function sendRecording(blob) {
+  $("sm-mic").disabled = true;
+  setStatus($("sm-status"), "Working out what was said… (the first one can take a minute)", false, true);
+  try {
+    const ext = blob.type.includes("mp4") ? "m4a" : blob.type.includes("ogg") ? "ogg" : "webm";
+    const fd = new FormData();
+    fd.append("audio", blob, "speech." + ext);
+    const r = await api("/api/listen", { method: "POST", body: fd });
+    if (!r.samoan) {
+      setStatus($("sm-status"), "Didn't catch any words — try again a little closer to the phone.", true);
+      return;
+    }
+    lastEnglish = r.english;
+    $("sm-english").textContent = r.english;
+    $("sm-samoan").textContent = "Heard: " + r.samoan;
+    $("sm-result").hidden = false;
+    setStatus($("sm-status"), "");
+    addHistory({ dir: "sm", from: r.samoan, to: r.english });
+    speakEnglish(r.english);
+  } catch (e) {
+    setStatus($("sm-status"), e.message, true);
+  } finally {
+    $("sm-mic").disabled = false;
+  }
+}
+
+$("sm-mic").onclick = () => (recorder && recorder.state === "recording" ? stopRecording() : startRecording());
+$("sm-play").onclick = () => lastEnglish && speakEnglish(lastEnglish);
+
+// ---------- history (kept on this phone only)
+const KEY = "samoan-history";
+function loadHistory() { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch { return []; } }
+function saveHistory(h) { try { localStorage.setItem(KEY, JSON.stringify(h.slice(0, 50))); } catch {} }
+
+function addHistory(item) {
+  const h = loadHistory();
+  h.unshift({ ...item, at: Date.now() });
+  saveHistory(h);
+  renderHistory();
+}
+
+function renderHistory() {
+  const h = loadHistory();
+  const ul = $("history");
+  ul.innerHTML = "";
+  if (!h.length) { ul.innerHTML = '<li class="empty" style="border:0;background:none">Nothing yet.</li>'; return; }
+  for (const item of h) {
+    const li = document.createElement("li");
+    const txt = document.createElement("div");
+    txt.className = "txt";
+    const from = document.createElement("p"); from.className = "from";
+    from.textContent = (item.dir === "en" ? "EN · " : "SM · ") + item.from;
+    const to = document.createElement("p"); to.className = "to"; to.textContent = item.to;
+    txt.append(from, to);
+    const btn = document.createElement("button");
+    btn.className = "play"; btn.type = "button"; btn.textContent = "▶";
+    btn.setAttribute("aria-label", "Play");
+    btn.onclick = async () => {
+      if (item.dir === "sm") return speakEnglish(item.to);
+      btn.innerHTML = '<span class="spinner"></span>';
+      try { const r = await api("/api/say", { method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ text: item.to }) });
+            await playAudio(r.audio).catch(() => {}); }
+      catch (e) { setStatus($("en-status"), e.message, true); }
+      finally { btn.textContent = "▶"; }
+    };
+    li.append(txt, btn);
+    ul.append(li);
+  }
+}
+$("clear").onclick = () => { saveHistory([]); renderHistory(); };
+renderHistory();
+
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+</script>
+</body>
+</html>
