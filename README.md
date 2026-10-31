@@ -9,7 +9,7 @@ web app installed to the home screen, reaching the Mac through a Cloudflare Tunn
 Phone (Chrome, installed app)
    │  HTTPS
 Cloudflare (Access login) ── tunnel ──▶ Mac mini :8000  FastAPI server
-                                          ├─ Google Translate      (en ⇄ sm)
+                                          ├─ Google Translate      (en ⇄ sm; falls back to facebook/nllb-200 on the Mac)
                                           ├─ facebook/mms-tts-smo  (Samoan voice)
                                           └─ facebook/mms-1b-all   (Samoan speech → text)
 ```
@@ -38,7 +38,7 @@ cd ~/SamoanTranslater
 bash scripts/setup_mac.sh
 ```
 
-This downloads ~4 GB of models the first time, then tests every step. Play `check_samoan.wav` to hear the voice.
+This downloads ~4 GB of models the first time (plus ~2.5 GB for the NLLB translator if Google blocks the request), then tests every step. Play `check_samoan.wav` to hear the voice.
 If you have a real Samoan recording, test recognition on it too:
 `.venv/bin/python scripts/check_models.py ~/Downloads/samoan-clip.m4a`
 
@@ -85,9 +85,13 @@ then ⋮ menu → **Add to Home screen** / **Install app**. Allow the microphone
   have a Samoan speaker check anything important.
 - **Speed:** After start-up, a short sentence takes about 1–3 s each way on an M1. Models take ~30 s to load after
   a restart.
-- **Memory:** both models together use ~5–6 GB. Fine on 16 GB; tight on an 8 GB Mac mini.
-- **Licences:** Meta's MMS models are CC-BY-NC 4.0 — personal / non-commercial use only. The translation uses
-  Google Translate's free endpoint, which can rate-limit or change; swapping in another translator only means
-  editing `translate()` in `server/models.py`.
+- **Memory:** both models together use ~5–6 GB, plus ~2.5 GB once the NLLB translator is in use. Fine on 16 GB;
+  tight on an 8 GB Mac mini.
+- **Licences:** Meta's MMS models are CC-BY-NC 4.0 — personal / non-commercial use only. NLLB is also CC-BY-NC 4.0.
+- **Translation:** Google Translate's free endpoint first. If Google blocks this address (its "unusual traffic"
+  page, reported as `TooManyRequests`), the app switches to Meta's NLLB model on the Mac for 15 minutes, then tries
+  Google again. NLLB can't be blocked but is usually a little less accurate. Set `TRANSLATOR=nllb` to never use
+  Google, or `TRANSLATOR=google` to turn the fallback off.
 - **Testing without models:** `FAKE_MODELS=1 bash scripts/run.sh` runs the app with placeholder results.
-- **Settings** (environment variables): `PORT`, `PRELOAD_MODELS`, `TTS_MODEL_ID`, `ASR_MODEL_ID`, `ASR_LANG`.
+- **Settings** (environment variables): `PORT`, `PRELOAD_MODELS`, `TTS_MODEL_ID`, `ASR_MODEL_ID`, `ASR_LANG`,
+  `TRANSLATOR`, `NLLB_MODEL_ID`.

@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import io
 import os
+import logging
 import subprocess
 import threading
+import time
 import wave
 
 import numpy as np
@@ -18,26 +20,80 @@ import numpy as np
 TTS_MODEL_ID = os.getenv("TTS_MODEL_ID", "facebook/mms-tts-smo")
 ASR_MODEL_ID = os.getenv("ASR_MODEL_ID", "facebook/mms-1b-all")
 ASR_LANG = os.getenv("ASR_LANG", "smo")
+NLLB_MODEL_ID = os.getenv("NLLB_MODEL_ID", "facebook/nllb-200-distilled-600M")
+TRANSLATOR = os.getenv("TRANSLATOR", "auto")  # auto (Google, then NLLB), google, nllb
 FAKE = os.getenv("FAKE_MODELS") == "1"
 ASR_RATE = 16_000
+NLLB_CODES = {"en": "eng_Latn", "sm": "smo_Latn"}
+GOOGLE_COOLDOWN = 15 * 60  # after Google blocks us, skip it for this many seconds
 
+log = logging.getLogger(__name__)
 _lock = threading.Lock()
 _tts = None  # (tokenizer, model)
 _asr = None  # (processor, model)
+_nllb = None  # (tokenizer, model)
+_google_blocked_until = 0.0
+last_translator = None  # "google" or "nllb", whichever answered last
 
 
 # ---------------------------------------------------------------- translation
 
 def translate(text: str, source: str, target: str) -> str:
-    """Translate with Google Translate (free endpoint via deep-translator).
+    """Translate with Google Translate, falling back to Meta's NLLB on this Mac.
 
+    Google's free endpoint (via deep-translator) sometimes blocks an address with
+    its "unusual traffic" page; NLLB runs locally and can't be blocked.
     Language codes: "en" English, "sm" Samoan.
     """
+    global _google_blocked_until, last_translator
     if FAKE:
         return f"[{source}->{target}] {text}"
-    from deep_translator import GoogleTranslator
 
-    return GoogleTranslator(source=source, target=target).translate(text) or ""
+    if TRANSLATOR != "nllb" and (TRANSLATOR == "google" or time.time() >= _google_blocked_until):
+        try:
+            from deep_translator import GoogleTranslator
+
+            result = GoogleTranslator(source=source, target=target).translate(text) or ""
+            last_translator = "google"
+            return result
+        except Exception as e:
+            if TRANSLATOR == "google":
+                raise
+            log.warning("Google Translate failed (%s: %s); using NLLB for %d min",
+                        type(e).__name__, e, GOOGLE_COOLDOWN // 60)
+            _google_blocked_until = time.time() + GOOGLE_COOLDOWN
+
+    result = _translate_nllb(text, source, target)
+    last_translator = "nllb"
+    return result
+
+
+def _load_nllb():
+    global _nllb
+    with _lock:
+        if _nllb is None:
+            from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+
+            _nllb = (
+                AutoTokenizer.from_pretrained(NLLB_MODEL_ID),
+                AutoModelForSeq2SeqLM.from_pretrained(NLLB_MODEL_ID).eval(),
+            )
+    return _nllb
+
+
+def _translate_nllb(text: str, source: str, target: str) -> str:
+    import torch
+
+    tokenizer, model = _load_nllb()
+    tokenizer.src_lang = NLLB_CODES[source]
+    inputs = tokenizer(text, return_tensors="pt")
+    with torch.no_grad():
+        ids = model.generate(
+            **inputs,
+            forced_bos_token_id=tokenizer.convert_tokens_to_ids(NLLB_CODES[target]),
+            max_new_tokens=256,
+        )
+    return tokenizer.batch_decode(ids, skip_special_tokens=True)[0].strip()
 
 
 # ---------------------------------------------------------------- text-to-speech
@@ -129,6 +185,8 @@ def preload():
     if not FAKE:
         _load_tts()
         _load_asr()
+        if TRANSLATOR == "nllb":  # in auto mode NLLB loads only if Google fails
+            _load_nllb()
 
 
 def status() -> dict:
@@ -136,6 +194,10 @@ def status() -> dict:
         "fake_models": FAKE,
         "tts_loaded": _tts is not None,
         "asr_loaded": _asr is not None,
+        "nllb_loaded": _nllb is not None,
         "tts_model": TTS_MODEL_ID,
         "asr_model": f"{ASR_MODEL_ID} ({ASR_LANG})",
+        "translator": TRANSLATOR,
+        "last_translator": last_translator,
+        "google_blocked": time.time() < _google_blocked_until,
     }

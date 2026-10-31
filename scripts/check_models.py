@@ -2,7 +2,8 @@
 
 Run from the project folder:  .venv/bin/python scripts/check_models.py
 
-1. Translates an English sentence to Samoan (Google Translate).
+1. Translates an English sentence to Samoan (Google Translate; if Google blocks
+   the request, Meta's NLLB model on this Mac — first use downloads ~2.5 GB).
 2. Speaks the Samoan with Meta's MMS voice -> saves check_samoan.wav (listen to it!).
 3. Feeds that audio to Meta's MMS speech recogniser in Samoan mode.
 4. Translates what it heard back to English.
@@ -34,7 +35,7 @@ def step(name, fn):
 
 english = "Thank you very much for the delicious food."
 samoan = step("Translate English -> Samoan", lambda: models.translate(english, "en", "sm"))
-print(f"   {english!r} -> {samoan!r}")
+print(f"   {english!r} -> {samoan!r}  (via {models.last_translator})")
 
 wav = step(f"Samoan voice ({models.TTS_MODEL_ID}) — first run downloads ~150 MB",
            lambda: models.speak_samoan(samoan))
@@ -49,6 +50,6 @@ heard = step(f"Samoan speech recognition ({models.ASR_MODEL_ID}, {models.ASR_LAN
 print(f"   heard: {heard!r}")
 
 back = step("Translate Samoan -> English", lambda: models.translate(heard, "sm", "en") if heard else "")
-print(f"   {heard!r} -> {back!r}")
+print(f"   {heard!r} -> {back!r}  (via {models.last_translator})")
 
 print("\nAll steps worked. Start the server with scripts/run.sh")
